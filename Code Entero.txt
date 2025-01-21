@@ -1,0 +1,41 @@
+import arcpy
+from arcpy import env
+
+env.workspace = r"C:\Users\linto\Desktop\I.A"
+env.overwriteOutput = True
+
+def clip(raster_input, mask_layer, raster_output):
+    arcpy.Clip_management(raster_input, "#", raster_output, mask_layer, "#", "ClippingGeometry")
+    print("Clip de {} completado correctamente.".format(raster_input))
+
+if __name__ == "__main__":
+    mask_layer = "CPN.shp"
+
+    clip("PPT.pr.tif", mask_layer, "PPT_pr_clipped.tif")
+    clip("TPE.pett.tif", mask_layer, "TPE_pett_clipped.tif")
+
+arcpy.ProjectRaster_management(in_raster="TPE_pett_clipped.tif", out_raster="C:/Users/linto/Documents/ArcGIS/Default.gdb/TPE_pett_clipped_ProjectRaster", out_coor_system="PROJCS['Mex_INEGI_Lambert_Conformal_Conic',GEOGCS['GCS_WGS_1984',DATUM['D_WGS_1984',SPHEROID['WGS_1984',6378137.0,298.257223563]],PRIMEM['Greenwich',0.0],UNIT['Degree',0.0174532925199433]],PROJECTION['Lambert_Conformal_Conic'],PARAMETER['False_Easting',2500000.0],PARAMETER['False_Northing',0.0],PARAMETER['Central_Meridian',-102.0],PARAMETER['Standard_Parallel_1',17.5],PARAMETER['Standard_Parallel_2',29.5],PARAMETER['Scale_Factor',1.0],PARAMETER['Latitude_Of_Origin',12.0],UNIT['Meter',1.0]]", resampling_type="NEAREST", cell_size="250 250", geographic_transform="", Registration_Point="", in_coor_system="GEOGCS['GCS_WGS_1984',DATUM['D_WGS_1984',SPHEROID['WGS_1984',6378137.0,298.257223563]],PRIMEM['Greenwich',0.0],UNIT['Degree',0.0174532925199433]]", vertical="NO_VERTICAL")
+
+arcpy.ProjectRaster_management(in_raster="PPT_pr_clipped.tif", out_raster="C:/Users/linto/Documents/ArcGIS/Default.gdb/PPT_pr_clipped_ProjectRaster", out_coor_system="PROJCS['Mex_INEGI_Lambert_Conformal_Conic',GEOGCS['GCS_WGS_1984',DATUM['D_WGS_1984',SPHEROID['WGS_1984',6378137.0,298.257223563]],PRIMEM['Greenwich',0.0],UNIT['Degree',0.0174532925199433]],PROJECTION['Lambert_Conformal_Conic'],PARAMETER['False_Easting',2500000.0],PARAMETER['False_Northing',0.0],PARAMETER['Central_Meridian',-102.0],PARAMETER['Standard_Parallel_1',17.5],PARAMETER['Standard_Parallel_2',29.5],PARAMETER['Scale_Factor',1.0],PARAMETER['Latitude_Of_Origin',12.0],UNIT['Meter',1.0]]", resampling_type="NEAREST", cell_size="250 250", geographic_transform="", Registration_Point="", in_coor_system="GEOGCS['GCS_WGS_1984',DATUM['D_WGS_1984',SPHEROID['WGS_1984',6378137.0,298.257223563]],PRIMEM['Greenwich',0.0],UNIT['Degree',0.0174532925199433]]", vertical="NO_VERTICAL")
+
+
+arcpy.gp.RasterCalculator_sa('SetNull("PPT_pr_clipped_ProjectRaster" == 0,"PPT_pr_clipped_ProjectRaster")', "c:/Users/linto/documents/ArcGIS/Default.gdb/PPT_pr_clipped_ProjectRaster_SetNull")
+
+arcpy.gp.RasterCalculator_sa('SetNull("TPE_pett_clipped_ProjectRaster" == 0,"TPE_pett_clipped_ProjectRaster")', "c:/Users/linto/documents/ArcGIS/Default.gdb/TPE_pett_clipped_ProjectRaster_SetNull")
+
+arcpy.gp.RasterCalculator_sa('Con(IsNull("TPE_pett_clipped_ProjectRaster_SetNull")  ==  1, FocalStatistics("TPE_pett_clipped_ProjectRaster_SetNull",NbrCircle(20,"CELL"),"MEAN"), "TPE_pett_clipped_ProjectRaster_SetNull")', "c:/Users/linto/documents/ArcGIS/Default.gdb/TPE_pett_clipped_ProjectRaster_SetNull_Fill")
+
+arcpy.gp.RasterCalculator_sa('Con(IsNull("PPT_pr_clipped_ProjectRaster_SetNull")  ==  1, FocalStatistics("PPT_pr_clipped_ProjectRaster_SetNull",NbrCircle(20,"CELL"),"MEAN"),"PPT_pr_clipped_ProjectRaster_SetNull")', "c:/Users/linto/documents/ArcGIS/Default.gdb/PPT_pr_clipped_ProjectRaster_SetNul_Fill")
+
+arcpy.gp.ExtractByMask_sa("PPT_pr_clipped_ProjectRaster_SetNul_Fill", "C:\Users\linto\Desktop\I.A\CPN.shp", "C:/Users/linto/Desktop/TPE PPT IA/PPT_Extract.tif")
+
+arcpy.gp.ExtractByMask_sa("TPE_pett_clipped_ProjectRaster_SetNull_Fill", "C:\Users\linto\Desktop\I.A\CPN.shp", "C:/Users/linto/Desktop/TPE PPT IA/TPE_Extract.tif")
+
+arcpy.gp.RasterCalculator_sa('"PPT_Extract.tif"/"TPE_Extract.tif"', "C:/Users/linto/Desktop/TPE PPT IA/IA.tif")
+
+arcpy.gp.Reclassify_sa("IA.tif", "Value", "0.115147 0.200000 1;0.200000 0.500000 2;0.500000 0.650000 3;0.650000 1.630000 4", "C:/Users/linto/Desktop/TPE PPT IA/IA_Reclassify.tif", "DATA")
+
+arcpy.RasterToPolygon_conversion(in_raster="IA_Reclassify.tif", out_polygon_features="C:/Users/linto/Desktop/TPE PPT IA/IA_Polygon.shp", simplify="SIMPLIFY", raster_field="Value", create_multipart_features="MULTIPLE_OUTER_PART", max_vertices_per_feature="")
+
+
+
