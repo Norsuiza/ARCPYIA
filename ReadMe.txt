@@ -43,7 +43,7 @@ Este sistema está diseñado para ser una herramienta accesible y práctica para
 Para más información, puedes ponerte en contacto conmigo:  
 **Norberto Arredondo Vizcarra**  
 **Facultad de Informática de Culiacán**  
-📧 [TuCorreo@example.com](mailto:TuCorreo@example.com)  
+📧 [n.arredondo20@info.uas.edu.mx]  
 
 ---
 
