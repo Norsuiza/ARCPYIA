@@ -1,0 +1,139 @@
+# -*- coding: utf-8 -*-
+
+import arcpy
+from arcpy import env
+import tkinter as tk
+from tkinter import filedialog, messagebox
+
+# Configurar entorno de ArcPy
+env.overwriteOutput = True
+
+def clip(raster_input, mask_layer, raster_output):
+    """Realiza un clip de un raster usando una capa de máscara."""
+    try:
+        arcpy.Clip_management(raster_input, "#", raster_output, mask_layer, "#", "ClippingGeometry")
+        print("Clip de {} completado correctamente.".format(raster_input))
+    except Exception as e:
+        raise Exception("Error en el clip de {}: {}".format(raster_input, str(e)))
+
+def ejecutar_proceso():
+    """Ejecuta el proceso completo utilizando las rutas proporcionadas."""
+    try:
+        # Obtener las rutas desde los inputs de texto
+        ppe_file = entry_ppe.get()
+        pte_file = entry_pte.get()
+        cpn_file = entry_cpn.get()
+        output_folder = entry_output.get()
+
+        # Verificar que se hayan ingresado todos los datos
+        if not all([ppe_file, pte_file, cpn_file, output_folder]):
+            messagebox.showwarning("Advertencia", "Debes introducir todos los archivos y la carpeta de salida.")
+            return
+
+        # Configurar workspace en la carpeta de salida
+        env.workspace = output_folder
+
+        # 1. Clip al área de estudio (usando CPN)
+        ppe_clip = "{}/PPT_pr_clipped.tif".format(output_folder)
+        pte_clip = "{}/TPE_pett_clipped.tif".format(output_folder)
+        clip(ppe_file, cpn_file, ppe_clip)
+        clip(pte_file, cpn_file, pte_clip)
+
+        # 2. Eliminar los valores nulos (SetNull) usando los archivos clip
+        ppe_setnull = "{}/PPT_pr_clipped_SetNull.tif".format(output_folder)
+        pte_setnull = "{}/TPE_pett_clipped_SetNull.tif".format(output_folder)
+        arcpy.gp.RasterCalculator_sa('SetNull(\'{}\' == 0, \'{}\')'.format(ppe_clip, ppe_clip), ppe_setnull)
+        arcpy.gp.RasterCalculator_sa('SetNull(\'{}\' == 0, \'{}\')'.format(pte_clip, pte_clip), pte_setnull)
+
+        # 3. Rellenar los valores nulos con FocalStatistics (usando vecinos cercanos)
+        ppe_fill = "{}/PPT_pr_clipped_SetNull_Fill.tif".format(output_folder)
+        pte_fill = "{}/TPE_pett_clipped_SetNull_Fill.tif".format(output_folder)
+        arcpy.gp.RasterCalculator_sa(
+            'Con(IsNull(\'{}\'), FocalStatistics(\'{}\', NbrCircle(3, "CELL"), "MEAN"), \'{}\')'.format(ppe_setnull, ppe_setnull, ppe_setnull),
+            ppe_fill
+        )
+        arcpy.gp.RasterCalculator_sa(
+            'Con(IsNull(\'{}\'), FocalStatistics(\'{}\', NbrCircle(3, "CELL"), "MEAN"), \'{}\')'.format(pte_setnull, pte_setnull, pte_setnull),
+            pte_fill
+        )
+
+        # 4. Proyección cónica y Resample (después del Fill)
+        ppe_resampled = "{}/PPT_pr_clipped_SetNull_Fill_Resampled.tif".format(output_folder)
+        pte_resampled = "{}/TPE_pett_clipped_SetNull_Fill_Resampled.tif".format(output_folder)
+        coor_system = ("PROJCS['Mex_INEGI_Lambert_Conformal_Conic',"
+                       "GEOGCS['GCS_WGS_1984',DATUM['D_WGS_1984',"
+                       "SPHEROID['WGS_1984',6378137.0,298.257223563]],"
+                       "PRIMEM['Greenwich',0.0],UNIT['Degree',0.0174532925199433]],"
+                       "PROJECTION['Lambert_Conformal_Conic'],"
+                       "PARAMETER['False_Easting',2500000.0],"
+                       "PARAMETER['False_Northing',0.0],"
+                       "PARAMETER['Central_Meridian',-102.0],"
+                       "PARAMETER['Standard_Parallel_1',17.5],"
+                       "PARAMETER['Standard_Parallel_2',29.5],"
+                       "PARAMETER['Scale_Factor',1.0],"
+                       "PARAMETER['Latitude_Of_Origin',12.0],"
+                       "UNIT['Meter',1.0]]")
+        arcpy.ProjectRaster_management(in_raster=ppe_fill,
+                                       out_raster=ppe_resampled,
+                                       out_coor_system=coor_system,
+                                       resampling_type="BILINEAR", cell_size="250 250")
+        arcpy.ProjectRaster_management(in_raster=pte_fill,
+                                       out_raster=pte_resampled,
+                                       out_coor_system=coor_system,
+                                       resampling_type="BILINEAR", cell_size="250 250")
+
+        # 5. Extraer por máscara (usando CPN para recortar los límites)
+        ppe_extract = "{}/PPT_Extract.tif".format(output_folder)
+        pte_extract = "{}/TPE_Extract.tif".format(output_folder)
+        arcpy.gp.ExtractByMask_sa(ppe_resampled, cpn_file, ppe_extract)
+        arcpy.gp.ExtractByMask_sa(pte_resampled, cpn_file, pte_extract)
+
+        # 6. Calcular IA (Índice de Aridez)
+        ia_raster = "{}/IA.tif".format(output_folder)
+        arcpy.gp.RasterCalculator_sa('"{}"/"{}"'.format(ppe_extract, pte_extract), ia_raster)
+
+        # 7. Reclasificar el IA según los valores definidos
+        ia_reclass = "{}/IA_Reclassify.tif".format(output_folder)
+        arcpy.gp.Reclassify_sa(ia_raster, "Value",
+                               "0.115147 0.200000 1;0.200000 0.500000 2;0.500000 0.650000 3;0.650000 1.630000 4",
+                               ia_reclass, "DATA")
+
+        # 8. Convertir a polígono
+        ia_polygon = "{}/IA_Polygon.shp".format(output_folder)
+        arcpy.RasterToPolygon_conversion(in_raster=ia_reclass, out_polygon_features=ia_polygon,
+                                         simplify="SIMPLIFY", raster_field="Value",
+                                         create_multipart_features="MULTIPLE_OUTER_PART")
+
+        messagebox.showinfo("Éxito", "Proceso completado correctamente.\nArchivos guardados en:\n{}".format(output_folder))
+
+    except Exception as e:
+        messagebox.showerror("Error", "Ocurrió un error:\n{}".format(str(e)))
+
+# Crear la interfaz gráfica
+root = tk.Tk()
+root.title("Calculo de Indice de Aridez")
+root.geometry("500x400")
+
+tk.Label(root, text="Datos de Entrada para el Cálculo del Índice de Aridez", font=("Arial", 12, "bold")).pack(pady=10)
+
+tk.Label(root, text="Ruta del archivo de precipitacion (Ej.: C:/ruta/PPT.pr.tif):").pack(pady=5)
+entry_ppe = tk.Entry(root, width=50)
+entry_ppe.pack(pady=5)
+
+tk.Label(root, text="Ruta del archivo de evapotranspiracion (Ej.: C:/ruta/TPE.pett.tif):").pack(pady=5)
+entry_pte = tk.Entry(root, width=50)
+entry_pte.pack(pady=5)
+
+tk.Label(root, text="Ruta del archivo del area de estudio .shp (Ej.: C:/ruta/Capa.shp):").pack(pady=5)
+entry_cpn = tk.Entry(root, width=50)
+entry_cpn.pack(pady=5)
+
+tk.Label(root, text="Carpeta de salida (Ej.: C:/ruta/salida):").pack(pady=5)
+entry_output = tk.Entry(root, width=50)
+entry_output.pack(pady=5)
+
+tk.Button(root, text="Ejecutar Proceso", command=ejecutar_proceso, bg="#77dd77", fg="white", font=("Arial", 10, "bold")).pack(pady=20)
+
+tk.Label(root, text="Facultad de Informática de Culiacán", font=("Arial", 8, "bold")).pack(pady=0)
+
+root.mainloop()
